@@ -1,0 +1,10 @@
+ApiVersion=2021-03-23
+LogFile="/var/log/ddnspod/ddnspod.log"
+
+SecretId=AKIDz8krbsJ5yKBZQpn74WFkmLPx3*******
+SecretKey=Gu5t9xGARNpq86cd98joQYCN3*******
+
+DDNS=domain.net,@,ipv4,eth0
+DDNS=domain.net,@,ipv6,eth0
+DDNS=domain.net,www,ipv4,pppoe-wan
+DDNS=domain.net,www,ipv6,pppoe-wan

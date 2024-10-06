@@ -11,7 +11,7 @@ LOG_LEVEL=$LOG_LEVEL_NOTICE
 LOG_TAG="ddnspod"
 LOG_SIZE=1000000 # 1MB
 
-### https://github.com/TencentCloud/signature-process-demo/tree/main/signature-v3/bash
+###### https://github.com/TencentCloud/signature-process-demo/tree/main/signature-v3/bash
 algorithm="TC3-HMAC-SHA256"
 host="dnspod.tencentcloudapi.com"
 service="dnspod"
@@ -61,7 +61,7 @@ dp_api_v3_req() {
     -H "X-TC-Token: $token"
   return $?
 }
-###
+######
 
 dp_api_err() {
   err_code="$(echo "$response" | sed -n 's/.*"Code":"\([^"]*\)".*/\1/p')"
@@ -83,7 +83,7 @@ dp_logger() {
     log_file_size="$(du -b "$LOG_FILE" | awk '{print $1}')"
   else
     log_file_size=0
-	mkdir -p "$(dirname "$LOG_FILE")"
+    mkdir -p "$(dirname "$LOG_FILE")"
   fi
 
   if [ "$log_file_size" -gt "$LOG_SIZE" ]; then
@@ -117,11 +117,25 @@ dp_rec_update() {
   echo "$response"
 }
 
+ip6_ula() {
+    # IPv6 Unique Local Addresses (ULAs)
+    ip6_ulas="(^$)"
+    ip6_ulas="$ip6_ulas|(^::1$)"                            # RFC4291
+    ip6_ulas="$ip6_ulas|(^64:[fF][fF]9[bB]:)"               # RFC6052, RFC8215
+    ip6_ulas="$ip6_ulas|(^100::)"                           # RFC6666
+    ip6_ulas="$ip6_ulas|(^2001:2:0?:)"                      # RFC5180
+    ip6_ulas="$ip6_ulas|(^2001:[dD][bB]8:)"                 # RFC3849
+    ip6_ulas="$ip6_ulas|(^[fF][cdCD][0-9a-fA-F]{2}:)"       # RFC4193 Unique local addresses
+    ip6_ulas="$ip6_ulas|(^[fF][eE][8-9a-bA-B][0-9a-fA-F]:)" # RFC4291 Link-local addresses
+    echo $ip6_ulas
+}
+
 ip_addr_show() {
   if [ "$ip_type" = "IPv4" ]; then
     address="$(ip -4 address show dev "$device" | sed -n 's/.*inet \([0-9.]\+\).*/\1/p')"
   else
-    address="$(ip -6 address show dev "$device" | sed -n 's/.*inet6 \([0-9a-fA-F:]\+\)\/64.*scope global dynamic noprefixroute.*/\1/p')"
+    ip6_filter=$(ip6_ula)
+    address="$(ip -6 address show dev "$device" | sed -n 's/.*inet6 \([0-9a-fA-F:]\+\)\/64.*scope global dynamic.*/\1/p' | grep -Ev "$ip6_filter")"
   fi
 
   if [ -z "$address" ]; then
@@ -219,19 +233,19 @@ dp_sync_ddns() {
 }
 
 process_sync_ddns() {
-  if [ -e "$CONF_FILE" ]; then
-    version="$(awk -F= '/ApiVersion=/ {print $2}' $CONF_FILE)"
-    secret_id="$(awk -F= '/SecretId=/ {print $2}' $CONF_FILE)"
-    secret_key="$(awk -F= '/SecretKey=/ {print $2}' $CONF_FILE)"
-    log_file="$(awk -F= '/LogFile=/ {print $2}' $CONF_FILE)"
-  else
+  if [ ! -e "$CONF_FILE" ]; then
     echo "Error: $CONF_FILE does not exist"
     return 1
   fi
 
+  version="$(awk -F= '/ApiVersion=/ {print $2}' $CONF_FILE)"
+  secret_id="$(awk -F= '/SecretId=/ {print $2}' $CONF_FILE)"
+  secret_key="$(awk -F= '/SecretKey=/ {print $2}' $CONF_FILE)"
+  log_file="$(awk -F= '/LogFile=/ {print $2}' $CONF_FILE)"
+
   rec_cnt="$(grep "DDNS" $CONF_FILE | wc -l)"
   if [ "$rec_cnt" -eq 0 ]; then
-    echo "Error: No DDNS configuration found in $CONF_FILE"
+    echo "Error: DDNS records not found in $CONF_FILE"
     return 1
   fi
 

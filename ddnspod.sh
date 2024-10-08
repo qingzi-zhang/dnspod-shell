@@ -2,11 +2,12 @@
 
 AGENT="https://github.com/qingzi-zhang/dnspod-shell"
 CONF_FILE="/etc/config/ddnspod"
-DESC="Synchronize the IP address of DDNS with Tencent DNSPOD API v3.0 in OpenWrt"
+DESC="Synchronize the IP address of DDNS with Tencent DNSPOD API 3.0"
 
-LOG_FILE="/tmp/log/ddnspod.log"
+LOG_FILE="/var/log/ddnspod.log"
+LOG_LEVEL_INFO=0
 LOG_LEVEL_NOTICE=1
-LOG_LEVEL_INFO=2
+
 LOG_LEVEL=$LOG_LEVEL_NOTICE
 LOG_TAG="ddnspod"
 LOG_SIZE=1000000 # 1MB
@@ -66,7 +67,7 @@ dp_api_v3_req() {
 dp_api_err() {
   err_code="$(echo "$response" | sed -n 's/.*"Code":"\([^"]*\)".*/\1/p')"
   if [ -n "$err_code" ]; then
-    logger -p error -s -t $LOG_TAG "$domain_full_name,$ip_type: $err_code"
+    logger -p error -s -t $LOG_TAG "$domain_full_name($ip_type): $err_code"
     return 1
   fi
 }
@@ -233,6 +234,25 @@ dp_sync_ddns() {
 }
 
 process_sync_ddns() {
+  grep "DDNS" $CONF_FILE | while read -r "dp_conf"; do
+    domain="$(echo "$dp_conf" | awk -F '[=,]' '{print $2}')"
+    subdomain="$(echo "$dp_conf" | awk -F '[=,]' '{print $3}')"
+    ip_type="$(echo "$dp_conf" | awk -F '[=,]' '{print $4}')"
+    device="$(echo "$dp_conf" | awk -F '[=,]' '{print $5}')"
+    suffix="$(echo "$dp_conf" | awk -F '[=,]' '{print $6}')"
+    dp_sync_ddns # "$domain" "$subdomain" "$ip_type" "$device" "$suffix"
+  done
+}
+
+showhelp() {
+  echo "Usage: $(basename "$0") [options]
+Options:
+  --help               Display this help message
+  --log-level=0|1      Set LOG_LEVEL to 0 (info), 1 (notice)
+"
+}
+
+main() {
   if [ ! -e "$CONF_FILE" ]; then
     echo "Error: $CONF_FILE does not exist"
     return 1
@@ -253,20 +273,23 @@ process_sync_ddns() {
     LOG_FILE="$log_file"
   fi
 
-  grep "DDNS" $CONF_FILE | while read -r "dp_conf"; do
-    domain="$(echo "$dp_conf" | awk -F '[=,]' '{print $2}')"
-    subdomain="$(echo "$dp_conf" | awk -F '[=,]' '{print $3}')"
-    ip_type="$(echo "$dp_conf" | awk -F '[=,]' '{print $4}')"
-    device="$(echo "$dp_conf" | awk -F '[=,]' '{print $5}')"
-    suffix="$(echo "$dp_conf" | awk -F '[=,]' '{print $6}')"
-    dp_sync_ddns # "$domain" "$subdomain" "$ip_type" "$device" "$suffix"
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --help | -h)
+        showhelp
+        return
+        ;;
+      --log-level=*)
+        LOG_LEVEL="${1#*=}"
+        shift
+        ;;
+      *)
+        echo "Invalid option: $1"
+        showhelp
+        return
+        ;;
+    esac
   done
-}
-
-main() {
-  if [ "$1" = "log_level_info" ]; then
-    LOG_LEVEL=$LOG_LEVEL_INFO
-  fi
   process_sync_ddns
 }
 

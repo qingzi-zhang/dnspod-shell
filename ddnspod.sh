@@ -80,13 +80,15 @@ dp_logger() {
     return 1
   fi
 
-  if [ -e "$LOG_FILE" ]; then
-    log_file_size="$(du -b "$LOG_FILE" | awk '{print $1}')"
-  else
-    log_file_size=0
+  if [ ! -e "$LOG_FILE" ]; then
     mkdir -p "$(dirname "$LOG_FILE")"
+    if [ ! touch "$LOG_FILE" 2>/dev/null ]; then
+	  logger -p warning -s -t $LOG_TAG "Failed to create $LOG_FILE, passing to next"
+      return 1
+    fi
   fi
 
+  log_file_size="$(du -b "$LOG_FILE" | awk '{print $1}')"
   if [ "$log_file_size" -gt "$LOG_SIZE" ]; then
     mv -f "$LOG_FILE" "$LOG_FILE".bak
   fi
@@ -234,6 +236,12 @@ dp_sync_ddns() {
 }
 
 process_sync_ddns() {
+  rec_cnt="$(grep "DDNS" $CONF_FILE | wc -l)"
+  if [ "$rec_cnt" -eq 0 ]; then
+    logger -p warning -s -t $LOG_TAG "No DDNS records found in $CONF_FILE"
+    return 1
+  fi
+
   grep "DDNS" $CONF_FILE | while read -r "dp_conf"; do
     domain="$(echo "$dp_conf" | awk -F '[=,]' '{print $2}')"
     subdomain="$(echo "$dp_conf" | awk -F '[=,]' '{print $3}')"
@@ -244,52 +252,61 @@ process_sync_ddns() {
   done
 }
 
-showhelp() {
+parse_arguments() {
+  while [ "$#" -gt 0 ]; do
+    case "$1" in
+      --help | -h)
+        show_help
+        return 1
+        ;;
+      --log-file=*)
+        LOG_FILE="${1#*=}"
+		shift
+        ;;
+      --log-level=*)
+        LOG_LEVEL="${1#*=}"
+		shift
+        ;;
+      *)  
+        echo "Invalid option: $1"
+        show_help
+        return 1
+        ;;
+    esac
+  done
+  return 0
+}
+
+show_help() {
   echo "Usage: $(basename "$0") [options]
 Options:
   --help               Display this help message
+  --log-file=FILE      Set LOG_FILE to FILE
   --log-level=0|1      Set LOG_LEVEL to 0 (info), 1 (notice)
 "
 }
 
-main() {
+validate_config() {
   if [ ! -e "$CONF_FILE" ]; then
     echo "Error: $CONF_FILE does not exist"
     return 1
   fi
 
-  version="$(awk -F= '/ApiVersion=/ {print $2}' $CONF_FILE)"
-  secret_id="$(awk -F= '/SecretId=/ {print $2}' $CONF_FILE)"
-  secret_key="$(awk -F= '/SecretKey=/ {print $2}' $CONF_FILE)"
-  log_file="$(awk -F= '/LogFile=/ {print $2}' $CONF_FILE)"
-
-  rec_cnt="$(grep "DDNS" $CONF_FILE | wc -l)"
-  if [ "$rec_cnt" -eq 0 ]; then
-    echo "Error: DDNS records not found in $CONF_FILE"
+  if ! echo "$LOG_LEVEL" | grep -qE '^[01]'; then
+    echo "Error: Invalid log level '$LOG_LEVEL'. Use 0 (info) or 1 (notice)."  
     return 1
   fi
 
-  if [ -n "$log_file" ]; then
-    LOG_FILE="$log_file"
-  fi
+  version="$(awk -F= '/ApiVersion=/ {print $2}' "$CONF_FILE")"
+  secret_id="$(awk -F= '/SecretId=/ {print $2}' "$CONF_FILE")"
+  secret_key="$(awk -F= '/SecretKey=/ {print $2}' "$CONF_FILE")"
+  log_file="$(awk -F= '/LogFile=/ {print $2}' "$CONF_FILE")"
+  LOG_FILE="${log_file:-$LOG_FILE}"
+}
 
-  while [ "$#" -gt 0 ]; do
-    case "$1" in
-      --help | -h)
-        showhelp
-        return
-        ;;
-      --log-level=*)
-        LOG_LEVEL="${1#*=}"
-        shift
-        ;;
-      *)
-        echo "Invalid option: $1"
-        showhelp
-        return
-        ;;
-    esac
-  done
+main() {
+  parse_arguments "$@" || return 1
+  validate_config || return 1
   process_sync_ddns
 }
 

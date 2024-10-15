@@ -120,24 +120,23 @@ dp_rec_update() {
   echo "$response"
 }
 
-ip6_ula() {
-    # IPv6 Unique Local Addresses (ULAs)
-    ip6_ulas="(^$)"
-    ip6_ulas="$ip6_ulas|(^::1$)"                            # RFC4291
-    ip6_ulas="$ip6_ulas|(^64:[fF][fF]9[bB]:)"               # RFC6052, RFC8215
-    ip6_ulas="$ip6_ulas|(^100::)"                           # RFC6666
-    ip6_ulas="$ip6_ulas|(^2001:2:0?:)"                      # RFC5180
-    ip6_ulas="$ip6_ulas|(^2001:[dD][bB]8:)"                 # RFC3849
-    ip6_ulas="$ip6_ulas|(^[fF][cdCD][0-9a-fA-F]{2}:)"       # RFC4193 Unique local addresses
-    ip6_ulas="$ip6_ulas|(^[fF][eE][8-9a-bA-B][0-9a-fA-F]:)" # RFC4291 Link-local addresses
-    echo $ip6_ulas
+ip6_local() {
+  # Please note the updates on https://www.iana.org/assignments/iana-ipv6-special-registry/iana-ipv6-special-registry.xhtml
+
+  # RFC4291 Loopback Address ::1/128
+  ip6_filter="^::1$"
+  # RFC4193,RFC8190 Unique-Local fc00::/7
+  ip6_filter="$ip6_filter|^[fF][cdCD][0-9a-fA-F]{2}:"
+  # RFC4291 Link-Local Unicast fe80::/10
+  ip6_filter="$ip6_filter|^[fF][eE][89a-bA-B][0-9a-fA-F]:"
+  echo "$ip6_filter"
 }
 
 ip_addr_show() {
   if [ "$ip_type" = "IPv4" ]; then
     address="$(ip -4 address show dev "$device" | sed -n 's/.*inet \([0-9.]\+\).*/\1/p')"
   else
-    ip6_filter=$(ip6_ula)
+    ip6_filter="$(ip6_local)"
     address="$(ip -6 address show dev "$device" | sed -n 's/.*inet6 \([0-9a-fA-F:]\+\)\/64.*scope global dynamic.*/\1/p' | grep -Ev "$ip6_filter")"
   fi
 
@@ -236,8 +235,8 @@ dp_sync_ddns() {
 }
 
 process_sync_ddns() {
-  rec_cnt="$(grep "DDNS" $CONF_FILE | wc -l)"
-  if [ "$rec_cnt" -eq 0 ]; then
+  ddns_count="$(grep "DDNS" $CONF_FILE | wc -l)"
+  if [ "$ddns_count" -eq 0 ]; then
     logger -p warning -s -t $LOG_TAG "No DDNS records found in $CONF_FILE"
     return 1
   fi

@@ -8,7 +8,7 @@
   </a>
 </p>
 
-Synchronize the IP address of DDNS with Tencent DNSPOD API 3.0 / 同步使用 DNSPod API 3.0 的动态域名
+Synchronize the IP address of DDNS with Tencent DNSPOD API 3.0 / 同步 DNSPod API 3.0 动态域名的地址
 
 ## Usage
 ```

@@ -16,13 +16,13 @@ Clone this project and launch installation:
 git clone https://github.com/qingzi-zhang/dnspod-shell
 sudo cp dnspod-shell/ddnspod /etc/config/ddnspod
 sudo ln -s dnspod-shell/ddnspod.sh /usr/bin/ddnspod.sh
-sudo chmod 700 /usr/bin/ddnspod.sh
+sudo chmod 600 /usr/bin/ddnspod.sh
 ```
 ### Configuration
 Adjust based on your DDNS information in config file: /etc/config/ddnspod
-```
-SecretId, SecretKey, DDNS
-```
+- SecretId
+- SecretKey
+- DDNS
 
 ## Usage
 ```

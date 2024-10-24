@@ -4,6 +4,8 @@ AGENT="https://github.com/qingzi-zhang/dnspod-shell"
 CONF_FILE="/etc/config/ddnspod"
 DESC="Synchronize the IP address of DDNS with Tencent DNSPOD API 3.0"
 
+FORCE_UPDATE=0
+
 LOG_FILE="/var/log/ddnspod.log"
 LOG_LEVEL_INFO=0
 LOG_LEVEL_NOTICE=1
@@ -80,12 +82,14 @@ dp_logger() {
     return 1
   fi
 
+  # LOG_FILE not exists
   if [ ! -e "$LOG_FILE" ]; then
     mkdir -p "$(dirname "$LOG_FILE")"
-    if [ ! touch "$LOG_FILE" 2>/dev/null ]; then
-	  logger -p warning -s -t $LOG_TAG "Failed to create $LOG_FILE, passing to next"
+    if ! touch "$LOG_FILE" >/dev/null 2>&1; then
+      logger -p warning -s -t $LOG_TAG "Failed to create $LOG_FILE, passing to next"
       return 1
     fi
+    chmod 600 "$LOG_FILE"
   fi
 
   log_file_size="$(du -b "$LOG_FILE" | awk '{print $1}')"
@@ -123,12 +127,22 @@ dp_rec_update() {
 ip6_local() {
   # Please note the updates on https://www.iana.org/assignments/iana-ipv6-special-registry/iana-ipv6-special-registry.xhtml
 
-  # RFC4291 Loopback Address ::1/128
-  ip6_filter="^::1$"
-  # RFC4193,RFC8190 Unique-Local fc00::/7
+  # [RFC4291] Unspecified Address ::/128
+  ip6_filter="^::$"
+  # [RFC4291] Loopback Address ::1/128
+  ip6_filter="$ip6_filter|^::1$"
+  # [RFC6052] IPv4-IPv6 Translat 64:ff9b::/96
+  # [RFC8215] IPv4-IPv6 Translat 64:ff9b:1::/48
+  ip6_filter="$ip6_filter|^64:[fF][fF]9[bB]:"
+  # [RFC6666] Discard-Only Address Block 100::/64
+  ip6_filter="$ip6_filter|^100::"
+  # [RFC5180][RFC Errata 1752] Benchmarking 2001:2::/48
+  ip6_filter="$ip6_filter|^2001:2:"
+  # [RFC4193][RFC8190] Unique-Local fc00::/7
   ip6_filter="$ip6_filter|^[fF][cdCD][0-9a-fA-F]{2}:"
-  # RFC4291 Link-Local Unicast fe80::/10
+  # [RFC4291] Link-Local Unicast fe80::/10
   ip6_filter="$ip6_filter|^[fF][eE][89a-bA-B][0-9a-fA-F]:"
+
   echo "$ip6_filter"
 }
 
@@ -137,15 +151,16 @@ ip_addr_show() {
     address="$(ip -4 address show dev "$device" | sed -n 's/.*inet \([0-9.]\+\).*/\1/p')"
   else
     ip6_filter="$(ip6_local)"
-    address="$(ip -6 address show dev "$device" | sed -n 's/.*inet6 \([0-9a-fA-F:]\+\)\/64.*scope global dynamic.*/\1/p' | grep -Ev "$ip6_filter")"
+    address="$(ip -6 address show dev "$device" | sed -n 's/.*inet6 \([0-9a-fA-F:]\+\)\/64.*scope global dynamic.*/\1/p' | grep -Ev "$ip6_filter" | head -n 1)"
   fi
 
   if [ -z "$address" ]; then
     logger -p error -s -t $LOG_TAG "$domain_full_name failed to show $device $ip_type address"
     return 1
   fi
+
   # Replace custom suffix if defined
-  [ -n "$suffix" ] &&  address="${address%::*}:$suffix"
+  [ -n "$suffix" ] && address="${address%::*}:$suffix"
 
   echo "$address"
 }
@@ -165,7 +180,7 @@ dp_sync_ddns() {
     return 78
   fi
 
-  if [ ! "$(ip link show dev "$device")" ]; then
+  if ! ip link show dev "$device" >/dev/null 2>&1; then
     echo "Error: Invalid interface '$device' or unavailable"
     return 78
   fi
@@ -180,6 +195,7 @@ dp_sync_ddns() {
 
   # Set the IP type to 'IPv6' if not set
   ip_type="$(echo "${ip_type:-"IPv6"}" | sed 's/[iI][pP][vV]/IPv/')"
+
   # If the IP type is not A (IPv4), default to AAAA (IPv6).
   if [ "$ip_type" = "IPv4" ]; then
     suffix=""
@@ -196,35 +212,42 @@ dp_sync_ddns() {
     return 65
   fi
 
-  # Check if the IP addresses are the same between the device and the nslookup
   if [ "$ns_ip_addr" = "$ip_addr" ]; then
     if [ "$LOG_LEVEL" -eq "$LOG_LEVEL_INFO" ]; then
       logger -p info -s -t $LOG_TAG "$domain_full_name $ip_type address $ip_addr is up to date"
     else
       echo "$domain_full_name $ip_type address $ip_addr is up to date"
     fi
-    return 0
+
+    if [ "$FORCE_UPDATE" -eq 0 ]; then
+      return 0
+    fi
   fi
 
   log_time="$(date "+%Y-%m-%d %H:%M:%S")"
+
   # Retrieve the list of domain name resolution records (dnspod API: DescribeRecordList)
   response="$(dp_rec_list "$domain" "$subdomain" "$record_type")"
   if ! dp_api_err "$response"; then
     return 1
   fi
+
+  # Extract the record ID and IP address from the DNSPOD API result
   record_id="$(echo "$response" | sed 's/.*"RecordId":\([0-9]*\).*/\1/')"
   record_ip="$(echo "$response" | sed -n 's/.*"Value":"\([0-9a-fA-F.:]*\)".*/\1/p')"
   if [ -z "$record_id" ] || [ -z "$record_ip" ]; then
     echo "Error: Failed to extract one or more values from DNSPOD api result for $domain_full_name"
     return 65
   fi
-  # If the IP addresses are the same due to the local DNS cache not being updated
+
+  # The IP addresses remain the same due to the local DNS cache not being updated
   if [ "$ip_addr" = "$record_ip" ]; then
     logger -p info -s -t $LOG_TAG "device $device: $domain_full_name $ip_type address $ip_addr is up to date"
-    return 0
+    [ "$FORCE_UPDATE" -eq 0 ] && return 0
   fi
 
   record_line="默认" # Line of default , unicode="\u9ed8\u8ba4"
+
   # Update the dynamic DNS record (dnspod API: ModifyDynamicDNS)
   response="$(dp_rec_update "$domain" "$record_id" "$record_line" "$ip_addr" "$subdomain")"
   if ! dp_api_err "$response"; then
@@ -235,12 +258,12 @@ dp_sync_ddns() {
 }
 
 process_sync_ddns() {
-  ddns_count="$(grep "DDNS" $CONF_FILE | wc -l)"
+  ddns_count="$(grep -c "DDNS" $CONF_FILE)"
   if [ "$ddns_count" -eq 0 ]; then
     logger -p warning -s -t $LOG_TAG "No DDNS records found in $CONF_FILE"
     return 1
   fi
-
+ 
   grep "DDNS" $CONF_FILE | while read -r "dp_conf"; do
     domain="$(echo "$dp_conf" | awk -F '[=,]' '{print $2}')"
     subdomain="$(echo "$dp_conf" | awk -F '[=,]' '{print $3}')"
@@ -254,34 +277,40 @@ process_sync_ddns() {
 parse_arguments() {
   while [ "$#" -gt 0 ]; do
     case "$1" in
+      --force-update | -f)
+        FORCE_UPDATE=1
+        shift
+        ;;
       --help | -h)
         show_help
         return 1
         ;;
       --log-file=*)
         LOG_FILE="${1#*=}"
-		shift
+        shift
         ;;
       --log-level=*)
         LOG_LEVEL="${1#*=}"
-		shift
+        shift
         ;;
-      *)  
+      *)
         echo "Invalid option: $1"
         show_help
         return 1
         ;;
     esac
   done
-  return 0
 }
 
 show_help() {
-  echo "Usage: $(basename "$0") [options]
+  echo "$AGENT
+$DESC
+Usage: $(basename "$0") [options]
 Options:
-  --help               Display this help message
-  --log-file=FILE      Set LOG_FILE to FILE
-  --log-level=0|1      Set LOG_LEVEL to 0 (info), 1 (notice)
+  -h, --help          Display this help message
+  -f, --force-update  Force update even if the IP address is up to date
+  --log-file=FILE     Set LOG_FILE to FILE
+  --log-level=0|1     Set LOG_LEVEL to 0 (info), 1 (notice)
 "
 }
 
@@ -291,8 +320,8 @@ validate_config() {
     return 1
   fi
 
-  if ! echo "$LOG_LEVEL" | grep -qE '^[01]'; then
-    echo "Error: Invalid log level '$LOG_LEVEL'. Use 0 (info) or 1 (notice)."  
+  if ! echo "$LOG_LEVEL" | grep -q '^[01]$'; then
+    echo "Error: Invalid log level '$LOG_LEVEL'. Use 0 (info) or 1 (notice)."
     return 1
   fi
 

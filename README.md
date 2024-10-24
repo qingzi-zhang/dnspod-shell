@@ -10,6 +10,20 @@
 
 Synchronize the IP address of DDNS with Tencent DNSPOD API 3.0 / 同步 DNSPod API 3.0 动态域名的地址
 
+## Install
+Clone this project and launch installation:
+```
+git clone https://github.com/qingzi-zhang/dnspod-shell
+sudo cp dnspod-shell/ddnspod /etc/config/ddnspod
+sudo ln -s dnspod-shell/ddnspod.sh /usr/bin/ddnspod.sh
+sudo chmod 700 /usr/bin/ddnspod.sh
+```
+### Configuration
+Adjust based on your DDNS information in config file: /etc/config/ddnspod
+```
+SecretId, SecretKey, DDNS
+```
+
 ## Usage
 ```
 ddnspod.sh --help
@@ -18,8 +32,10 @@ Usage: ddnspod.sh [options]
 
 Options:
 
-  --help               Display this help message
+  -h, --help          Display this help message
 
-  --log-file=FILE      Set LOG_FILE to FILE
+  -f, --force-update  Force update even if the IP address is up to date
 
-  --log-level=0|1      Set LOG_LEVEL to 0 (info), 1 (notice)
+  --log-file=FILE     Set LOG_FILE to FILE
+
+  --log-level=0|1     Set LOG_LEVEL to 0 (info), 1 (notice)

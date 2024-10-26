@@ -8,34 +8,43 @@
   </a>
 </p>
 
-Synchronize the IP address of DDNS with Tencent DNSPOD API 3.0 / 同步 DNSPod API 3.0 动态域名的地址
+Synchronize the IP address of DDNS with Tencent DNSPOD API 3.0 / 同步 DNSPod API 3.0 动态域名的IP地址
 
 ## Install
-Clone this project and launch installation:
+Clone & installation:
 ```
 git clone https://github.com/qingzi-zhang/dnspod-shell
 sudo cp dnspod-shell/ddnspod /etc/config/ddnspod
 sudo ln -s dnspod-shell/ddnspod.sh /usr/bin/ddnspod.sh
 sudo chmod 600 /usr/bin/ddnspod.sh
 ```
-### Configuration
+## Configuration
 Adjust based on your DDNS information in config file: /etc/config/ddnspod
 - SecretId
 - SecretKey
 - DDNS
 
+Exsample:
+```
+LogFile="/var/log/ddnspod/ddnspod.log"
+SecretId=AKIDz8krbsJ5yKBZQpn74WFkmLPx3*******
+SecretKey=Gu5t9xGARNpq86cd98joQYCN3*******
+
+DDNS=domain,subdomain,type,interface
+DDNS=domain.ai,@,ipv6,eth0
+DDNS=domain.ai,www,IPv6,pppoe-wan
+...
+...
+...
+```
 ## Usage
 ```
-ddnspod.sh --help
-```
-Usage: ddnspod.sh [options]
+Usage:
+  ddnspod.sh [options]
 
 Options:
-
-  -h, --help          Display this help message
-
-  -f, --force-update  Force update even if the IP address is up to date
-
-  --log-file=FILE     Set LOG_FILE to FILE
-
-  --log-level=0|1     Set LOG_LEVEL to 0 (info), 1 (notice)
+  -h, --help           Show help.
+  --config=<file>      Specify the config file
+  --force-update       Proceed update regardless of IP status
+  --log-level=<0|1>    Log level 0 (info), 1 (notice)
+```

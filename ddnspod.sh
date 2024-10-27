@@ -16,7 +16,10 @@ algorithm="TC3-HMAC-SHA256"
 host="dnspod.tencentcloudapi.com"
 service="dnspod"
 region="" # Common Params. This parameter is not required for this API.
-version="2021-03-23" # Version used for the API DescribeRecord and ModifyDynamicDNS: 2021-03-23
+
+# Current version for the DNSPod API 3.0 DescribeRecord and ModifyDynamicDNS: 2021-03-23
+# https://cloud.tencent.com/document/api/1427/56166, https://cloud.tencent.com/document/api/1427/56158
+version="2021-03-23"
 
 # Function adopted from DNSPod API 3.0
 # This function is based on the example provided by the external API.
@@ -102,6 +105,90 @@ dp_logger() {
   printf -- "----- %s %s -----\n%s\n" "$log_time" "$title" "$body" >> "$LOG_FILE"
 }
 
+# Synchronize the DDNS record
+dp_sync_ddns() {
+  if [ -z "$domain" ]; then
+    echo "Info: Domain name is missing, please check the config file '$CONF_FILE'."
+    return 78
+  fi
+
+  # Validate device
+  if ! ip link show dev "$device" >/dev/null 2>&1 ; then
+    echo "Error: Invalid interface '$device' or unavailable"
+    return 78
+  fi
+
+  # if subdomain is empty, set it to "@" which means the root domain
+  subdomain=${subdomain:-"@"}
+  if [ "$subdomain" = "@" ]; then
+    domain_full_name="$domain"
+  else
+    domain_full_name="$subdomain.$domain"
+  fi
+
+  # If ip_type is not specified, default to IPv6
+  ip_type=${ip_type:-"IPv6"}
+  # Convert to standard format
+  ip_type=$(echo "$ip_type" | sed 's/[iI][pP][vV]/IPv/')
+  if [ "$ip_type" = "IPv4" ]; then
+    rec_type="A"
+  else
+    rec_type="AAAA"
+  fi
+
+  # Get the IP address of the specified device by command 'ip'
+  ip_addr_show || return 74
+
+  # Get the IP address of the specified device by command 'nslookup'
+  ip_nslookup || return 74
+
+  # Check if the IP address has changed
+  if [ "$ns_ip_addr" = "$ip_addr" ]; then
+    if [ "$LOG_LEVEL" -eq "$LOG_LEVEL_INFO" ]; then
+      logger -p info -s -t $LOG_TAG "$domain_full_name $ip_type address $ip_addr is up to date"
+    else
+      echo "$domain_full_name $ip_type address $ip_addr is up to date"
+    fi
+
+    if [ "$FORCE_UPDATE" -ne 1 ]; then
+      # Force update is not enabled and IP address is up to date
+      return 0
+    fi
+  fi
+
+  timestamp=$(date +%s)
+  date=$(date -u -d @"$timestamp" +"%Y-%m-%d")
+  # Retrieve the list of domain name resolution records (dnspod API: DescribeRecordList)
+  response="$(dp_rec_query "$domain" "$subdomain" "$rec_type")"
+
+  # Validate response
+  dp_api_err || return 1
+
+  # Extract the record ID and record IP address from the DNSPOD API result
+  record_id="$(echo "$response" | sed 's/.*"RecordId":\([0-9]*\).*/\1/')"
+  record_ip="$(echo "$response" | sed -n 's/.*"Value":"\([0-9a-fA-F.:]*\)".*/\1/p')"
+  if [ -z "$record_id" ] || [ -z "$record_ip" ]; then
+    echo "Error: The attempt to extract the record ID or record IP address for $domain_full_name from DNSPOD api response has failed."
+    return 65
+  fi
+
+  # The IP addresses remain the same due to the local DNS cache not being updated
+  if [ "$ip_addr" = "$record_ip" ]; then
+    logger -p info -s -t $LOG_TAG "$domain_full_name [$device] $ip_type address $ip_addr is up to date"
+    [ "$FORCE_UPDATE" -eq 0 ] && return 0
+  fi
+
+  record_line="默认" # Line of default , unicode="\u9ed8\u8ba4"
+
+  # Update the dynamic DNS record (dnspod API: ModifyDynamicDNS)
+  response="$(dp_rec_update "$domain" "$record_id" "$record_line" "$ip_addr" "$subdomain")"
+
+  # Validate response
+  dp_api_err || return 1
+
+  logger -p notice -s -t $LOG_TAG "$domain_full_name $ip_type address has been updated to $ip_addr"
+}
+
 # Use DNSPod API to get the DNS records of a domain
 dp_rec_query() {
   action="DescribeRecordList"
@@ -122,7 +209,7 @@ dp_rec_update() {
   echo "$response"
 }
 
-# Get the IP address of the specified network interface using the 'ip' command
+# Use the 'ip' command to get the IP address of the specified network interface
 ip_addr_show() {
   if [ "$ip_type" = "IPv4" ]; then
     ip_addr="$(ip -4 address show dev "$device" | sed -n 's/.*inet \([0-9.]\+\).*/\1/p')"
@@ -158,15 +245,15 @@ ip_addr_show() {
   [ -z "$suffix" ] || ip_addr="${ip_addr%::*}:$suffix"
 }
 
-# Get the IP address of the specified device by nslookup
+# Use the 'nslookup' command to get the IP address
 ip_nslookup() {
   response="$(nslookup -type="$rec_type" "$domain_full_name")"
   # Attempt to get error message from the result
-  err_code=$(echo "$response" | grep -c "error")
+  err_code=$(echo "$response" | grep -c "**")
   # Error handling
   if [ "$err_code" -ne 0 ]; then
-    err_msg="$(echo "$response" | grep -E '^\*{2}')"
-    #err_msg=$(echo "$response" | sed -n 's/^\*\* //p')
+    err_msg="$(printf -- '%s\n' "$response" | grep -E '^\*{2}')"
+    #err_msg=$(printf -- '%s\n' "$response" | sed -n 's/^\*\* //p')
     logger -p error -s -t $LOG_TAG "$domain_full_name <$rec_type> [nslookup]: $err_msg"
     return 1
   fi
@@ -181,88 +268,33 @@ ip_nslookup() {
   fi
 }
 
-# Synchronize the DDNS record
-dp_sync_ddns() {
-  if [ -z "$domain" ]; then
-    echo "Info: Domain name is missing, please check the config file '$CONF_FILE'."
-  return 78
-  fi
-
-  # Validate device
-  if ! ip link show dev "$device" >/dev/null 2>&1 ; then
-    echo "Error: Invalid interface '$device' or unavailable"
-    return 78
-  fi
-
-  # if subdomain is empty, set it to "@" which means the root domain
-  subdomain=${subdomain:-"@"}
-  if [ "$subdomain" = "@" ]; then
-    domain_full_name="$domain"
-  else
-    domain_full_name="$subdomain.$domain"
-  fi
-
-  # If ip_type is not specified, default to IPv6
-  ip_type=${ip_type:-"IPv6"}
-  # Convert to standard format
-  ip_type=$(echo "$ip_type" | sed 's/[iI][pP][vV]/IPv/')
-  if [ "$ip_type" = "IPv4" ]; then
-    rec_type="A"
-  else
-    rec_type="AAAA"
-  fi
-
-  # Get the IP address of the specified device
-  ip_addr_show || return 74
-
-  # Get the IP address of the specified device by nslookup
-  ip_nslookup || return 74
-
-  # Check if the IP address has changed
-  if [ "$ns_ip_addr" = "$ip_addr" ]; then
-    if [ "$LOG_LEVEL" -eq "$LOG_LEVEL_INFO" ]; then
-      logger -p info -s -t $LOG_TAG "$domain_full_name $ip_type address $ip_addr is up to date"
-    else
-      echo "$domain_full_name $ip_type address $ip_addr is up to date"
-    fi
-
-    if [ "$FORCE_UPDATE" -ne 1 ]; then
-      # Force update is not enabled and IP address is up to date
-      return 0
-    fi
-  fi
-
-  timestamp=$(date +%s)
-  date=$(date -u -d @"$timestamp" +"%Y-%m-%d")
-  # Retrieve the list of domain name resolution records (dnspod API: DescribeRecordList)
-  response="$(dp_rec_query "$domain" "$subdomain" "$rec_type")"
-
-  # Validate response
-  dp_api_err || return 1
-
-  # Extract the record ID and record IP address from the DNSPOD API result
-  record_id="$(echo "$response" | sed 's/.*"RecordId":\([0-9]*\).*/\1/')"
-  record_ip="$(echo "$response" | sed -n 's/.*"Value":"\([0-9a-fA-F.:]*\)".*/\1/p')"
-  if [ -z "$record_id" ] || [ -z "$record_ip" ]; then
-    echo "Error: The attempt to extract the record ID or record IP address for $domain_full_name from DNSPOD api response has failed."
-    return 65
-  fi
-
-  # The IP addresses remain the same due to the local DNS cache not being updated
-  if [ "$ip_addr" = "$record_ip" ]; then
-    logger -p info -s -t $LOG_TAG "device $device: $domain_full_name $ip_type address $ip_addr is up to date"
-    [ "$FORCE_UPDATE" -eq 0 ] && return 0
-  fi
-
-  record_line="默认" # Line of default , unicode="\u9ed8\u8ba4"
-
-  # Update the dynamic DNS record (dnspod API: ModifyDynamicDNS)
-  response="$(dp_rec_update "$domain" "$record_id" "$record_line" "$ip_addr" "$subdomain")"
-
-  # Validate response
-  dp_api_err || return 1
-
-  logger -p notice -s -t $LOG_TAG "$domain_full_name $ip_type address has been updated to $ip_addr"
+# Parse arguments and process command
+parse_command() {
+  while [ ${#} -gt 0 ]; do
+    case "${1}" in
+      --help | -h)
+        show_help
+        return 1
+        ;;
+      --config=*)
+        CONF_FILE="${1#*=}"
+        shift
+        ;;
+      --force-update)
+        FORCE_UPDATE=1
+        shift
+        ;;
+      --log-level=*)
+        LOG_LEVEL="${1#*=}"
+        shift
+        ;;
+      *)
+        echo "Unknown option: ${1}"
+        show_help
+        return 1
+        ;;
+    esac
+  done
 }
 
 # Process synchronized DDNS records from config file
@@ -298,35 +330,6 @@ Options:
   --force-update       Proceed update regardless of IP status
   --log-level=<0|1>    Log level 0 (info), 1 (notice)
   "
-}
-
-# Parse arguments and process command
-parse_command() {
-  while [ ${#} -gt 0 ]; do
-    case "${1}" in
-      --help | -h)
-        show_help
-        return 1
-        ;;
-      --config=*)
-        CONF_FILE="${1#*=}"
-        shift
-        ;;
-      --force-update)
-        FORCE_UPDATE=1
-        shift
-        ;;
-      --log-level=*)
-        LOG_LEVEL="${1#*=}"
-        shift
-        ;;
-      *)
-        echo "Unknown option: ${1}"
-        show_help
-        return 1
-        ;;
-    esac
-  done
 }
 
 # Validate configration

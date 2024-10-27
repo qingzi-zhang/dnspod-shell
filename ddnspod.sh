@@ -249,7 +249,7 @@ ip_addr_show() {
 ip_nslookup() {
   response="$(nslookup -type="$rec_type" "$domain_full_name")"
   # Attempt to get error message from the result
-  err_code=$(echo "$response" | grep -c "**")
+  err_code=$(echo "$response" | grep -c "\*{2}")
   # Error handling
   if [ "$err_code" -ne 0 ]; then
     err_msg="$(printf -- '%s\n' "$response" | grep -E '^\*{2}')"

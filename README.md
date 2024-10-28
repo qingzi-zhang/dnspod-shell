@@ -1,5 +1,5 @@
 <div align="center">
-  <h1>An shell script for DDNS with dnspod</h1>
+  <h1>A DDNS Shell Script: ddnspod.sh</h1>
 </div>
 
 <p align="center">
@@ -8,7 +8,7 @@
   </a>
 </p>
 
-Synchronize the IP address of DDNS with Tencent DNSPOD API 3.0 / 同步 DNSPod API 3.0 动态域名的IP地址
+Synchronize DDNS via DNSPod API 3.0
 
 ## Install
 Clone & installation:
@@ -18,25 +18,14 @@ sudo cp dnspod-shell/ddnspod /etc/config/ddnspod
 sudo ln -s dnspod-shell/ddnspod.sh /usr/bin/ddnspod.sh
 sudo chmod 600 /usr/bin/ddnspod.sh
 ```
+
 ## Configuration
-Adjust based on your DDNS information in config file: /etc/config/ddnspod
-- SecretId
-- SecretKey
-- DDNS
+Replace the DDNS configuration in the file: `/etc/config/ddnspod`
+- SecretId=`AKIDz8krbsJ5yKBZQpn74WFkmLPx3*******`
+- SecretKey=`Gu5t9xGARNpq86cd98joQYCN3*******`
+- DDNS=`domain,subdomain,type,interface`
+- DDNS=`domain.ai,www,IPv6,pppoe-wan`
 
-Exsample:
-```
-LogFile="/var/log/ddnspod/ddnspod.log"
-SecretId=AKIDz8krbsJ5yKBZQpn74WFkmLPx3*******
-SecretKey=Gu5t9xGARNpq86cd98joQYCN3*******
-
-DDNS=domain,subdomain,type,interface
-DDNS=domain.ai,@,ipv6,eth0
-DDNS=domain.ai,www,IPv6,pppoe-wan
-...
-...
-...
-```
 ## Usage
 ```
 Usage:

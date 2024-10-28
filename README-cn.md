@@ -8,11 +8,11 @@
   </a>
 </p>
 
-English | [Chinese](README-cn.md)
+[English](README.md) | 中文
 
-**:~$ Synchronize DDNS via DNSPod API 3.0**
+**:~$ 同步基于DDNPod 3.0的动态域名**
 
-## Install
+## 安装
 Clone & installation:
 ```
 git clone https://github.com/qingzi-zhang/dnspod-shell
@@ -21,17 +21,17 @@ sudo ln -s dnspod-shell/ddnspod.sh /usr/bin/ddnspod.sh
 sudo chmod 600 /usr/bin/ddnspod.sh
 ```
 
-## Configuration
-Replace the DDNS configuration in the file: `/etc/config/ddnspod`
+## 配置
+修改配置文件: `/etc/config/ddnspod`
 - SecretId=`AKIDz8krbsJ5yKBZQpn74WFkmLPx3*******`
 - SecretKey=`Gu5t9xGARNpq86cd98joQYCN3*******`
 - DDNS=`domain,subdomain,type,interface`
 - DDNS=`domain.ai,www,IPv6,pppoe-wan`
 
-## Usage
+## 使用
 ```
-Usage:
-  ddnspod.sh [options]
+执行指令:
+  ddnspod.sh [默认不带参数]
 
 Options:
   -h, --help           Show help.

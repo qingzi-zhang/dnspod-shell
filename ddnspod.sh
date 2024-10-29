@@ -153,7 +153,7 @@ dp_sync_ddns() {
       echo "Info: $domain_full_name $ip_type address $ip_addr is up to date"
     fi
     # Return if force update is not required (IP address is up to date)
-	[ "$FORCE_UPDATE" -eq 0 ] && return 0
+    [ "$FORCE_UPDATE" -eq 0 ] && return 0
   fi
 
   # Retrieve the list of domain name resolution records (DNSPod API: DescribeRecordList)
@@ -173,7 +173,7 @@ dp_sync_ddns() {
   # If the IP address is up to date here, it means the local DNS cache is out of date
   if [ "$ip_addr" = "$record_ip" ]; then
     logger -p info -s -t $LOG_TAG "$domain_full_name [$interface] $ip_type address $ip_addr is up to date"
-	# Return 0 if force update not enabled (IP address is up to date)
+    # Return if force update is not required (IP address is up to date)
     [ "$FORCE_UPDATE" -eq 0 ] && return 0
   fi
 
@@ -301,25 +301,24 @@ proc_ddns_records() {
   # Read dynamic DNS records from config file
   rec_cnt=$(grep -c "DDNS" "$CONF_FILE")
   if [ "$rec_cnt" -eq 0 ]; then
-    echo "Info: No dynamic DNS records found in '$CONF_FILE'."
+    echo "Info: No record of dynamic DNS found in '$CONF_FILE'."
     return 1
   fi
 
+  # Get DDNS record field
+  get_field() {
+    index="$1"
+    echo "$record" | cut -d ',' -f "$index"
+  }
   # Process each dynamic DNS record
   grep "DDNS" "$CONF_FILE" | while read -r "record"; do
-    # Extract dynamic DNS record information
-    domain=$(echo "$record" | awk -F '[=,]' '{print $2}')
-    subdomain=$(echo "$record" | awk -F '[=,]' '{print $3}')
-    ip_type=$(echo "$record" | awk -F '[=,]' '{print $4}')
-    interface=$(echo "$record" | awk -F '[=,]' '{print $5}')
-    suffix=$(echo "$record" | awk -F '[=,]' '{print $6}')
-
-    # Validate required fields are present
-    if [ -z "$domain" ] || [ -z "$interface" ]; then
-      echo "Error: Incomplete dynamic DNS record found: <$record>"
-    fi
-
-    # Synchronize the dynamic DNS record
+    # Remove 'DDNS=' prefix and extract Dynamic DNS fields
+    record=${record#DDNS=}
+    domain=$(get_field 1)
+    subdomain=$(get_field 2)
+    ip_type=$(get_field 3)
+    interface=$(get_field 4)
+    suffix=$(get_field 5)
     dp_sync_ddns
   done
 }

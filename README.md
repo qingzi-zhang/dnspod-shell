@@ -8,7 +8,7 @@
   </a>
 </p>
 
-**:~$ Synchronize DDNS via DNSPod API 3.0**
+**[:~$] Synchronize DDNS via DNSPod API 3.0**
 
 ## Install
 Clone & installation:

@@ -28,24 +28,24 @@ dp_api_req() {
   http_request_method="POST"
   canonical_uri="/"
   canonical_querystring=""
-  canonical_headers="content-type:application/json; charset=utf-8\nhost:$host\nx-tc-action:$(echo $action | awk '{print tolower($0)}')\n"
+  canonical_headers="content-type:application/json; charset=utf-8\nhost:$host\nx-tc-action:$(echo "$action" | awk '{print tolower($0)}')\n"
   signed_headers="content-type;host;x-tc-action"
-  hashed_request_payload=$(printf -- "%s" "$payload" | openssl sha256 -hex | awk '{print $2}')
+  hashed_request_payload="$(printf -- "%s" "$payload" | openssl sha256 -hex | awk '{print $2}')"
   canonical_request="$http_request_method\n$canonical_uri\n$canonical_querystring\n$canonical_headers\n$signed_headers\n$hashed_request_payload"
 
-  timestamp=$(date +%s)
-  date=$(date -u -d @"$timestamp" +"%Y-%m-%d")
+  timestamp="$(date +%s)"
+  date="$(date -u -d @"$timestamp" +"%Y-%m-%d")"
   # ************* 步骤 2：拼接待签名字符串 | Step 2: Assemble the string to be signed *************
   credential_scope="$date/$service/tc3_request"
-  hashed_canonical_request=$(printf -- "%b" "$canonical_request" | openssl sha256 -hex | awk '{print $2}')
+  hashed_canonical_request="$(printf -- "%b" "$canonical_request" | openssl sha256 -hex | awk '{print $2}')"
   string_to_sign="$algorithm\n$timestamp\n$credential_scope\n$hashed_canonical_request"
 
   # ************* 步骤 3：计算签名 | Step 3: Calculate the signature *************
-  secret_date=$(printf -- "%b" "$date" | openssl sha256 -hmac "TC3$secret_key" | awk '{print $2}')
+  secret_date="$(printf -- "%b" "$date" | openssl sha256 -hmac "TC3$secret_key" | awk '{print $2}')"
   # 转二进制 | Convert to binary
-  secret_service=$(printf -- "%s" $service | openssl dgst -sha256 -mac hmac -macopt hexkey:"$secret_date" | awk '{print $2}')
-  secret_signing=$(printf -- "%s" "tc3_request" | openssl dgst -sha256 -mac hmac -macopt hexkey:"$secret_service" | awk '{print $2}')
-  signature=$(printf -- "%b" "$string_to_sign" | openssl dgst -sha256 -mac hmac -macopt hexkey:"$secret_signing" | awk '{print $2}')
+  secret_service="$(printf -- "%s" $service | openssl dgst -sha256 -mac hmac -macopt hexkey:"$secret_date" | awk '{print $2}')"
+  secret_signing="$(printf -- "%s" "tc3_request" | openssl dgst -sha256 -mac hmac -macopt hexkey:"$secret_service" | awk '{print $2}')"
+  signature="$(printf -- "%b" "$string_to_sign" | openssl dgst -sha256 -mac hmac -macopt hexkey:"$secret_signing" | awk '{print $2}')"
 
   # ************* 步骤 4：拼接 Authorization | Step 4: Concatenate Authorization *************
   authorization="$algorithm Credential=$secret_id/$credential_scope, SignedHeaders=$signed_headers, Signature=$signature"
@@ -62,16 +62,17 @@ dp_api_req() {
   return $?
 }
 
-# Parse error information from API response
+# Parse error from API response
 dp_api_err() {
-  # Extract field from API response
-  extract_field() {
+  # Extract value of key
+  extract_api_err() {
     echo "$response" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"
   }
 
-  err_code="$(extract_field Code)"
+  # Extract error code and message
+  err_code="$(extract_api_err Code)"
   if [ -n "$err_code" ]; then
-    err_msg="$(extract_field Message)"
+    err_msg="$(extract_api_err Message)"
     logger -p error -s -t $LOG_TAG "$domain_full_name <$rec_type> [$action]: $err_code, $err_msg"
     return 1
   fi
@@ -79,16 +80,13 @@ dp_api_err() {
 
 # Log to file
 dp_logger() {
-  # $1 - The title of the document or message
-  # $2 - The main content or body text of the document or message
   title="$1" body="$2"
-
   if [ -z "$title" ] || [ -z "$body" ]; then
     echo "Error: Missing required arguments <title> or <body>"
     return 74
   fi
 
-  # Attempt to create log file if missing
+  # Create log file if missing
   if [ ! -f "$LOG_FILE" ]; then
     mkdir -p "$(dirname "$LOG_FILE")"
     if ! touch "$LOG_FILE" >/dev/null 2>&1 ; then
@@ -98,42 +96,47 @@ dp_logger() {
     chmod 600 "$LOG_FILE"
   fi
 
+  # Rotate log file if size exceeds the limit
   log_file_size="$(du -b "$LOG_FILE" | grep -Eo '^[0-9]+')"
   if [ "$log_file_size" -gt "$LOG_SIZE" ]; then
     mv -f "$LOG_FILE" "$LOG_FILE".bak
   fi
 
+  # Get the current timestamp with specific format
   log_time="$(date "+%Y-%m-%d %H:%M:%S")"
+  # Write to log file
   printf -- "----- %s %s -----\n%s\n" "$log_time" "$title" "$body" >> "$LOG_FILE"
 }
 
-# Synchronize the dynamic DNS record
+# Synchronize DDNS record
 dp_sync_ddns() {
   if [ -z "$domain" ]; then
     echo "Info: Domain name is missing, please check the config file <$CONF_FILE>"
     return 78
   fi
 
-  # Validate the network ineterface
+  # Validate network ineterface
   if ! ip link show dev "$interface" >/dev/null 2>&1 ; then
     echo "Error: Invalid interface '$interface' or unavailable"
     return 78
   fi
 
   # Default subdomain to '@' if not specified
-  subdomain=${subdomain:-"@"}
+  subdomain="${subdomain:-"@"}"
   # Construct full domain
   if [ "$subdomain" = "@" ] || [ "$subdomain" = "*" ]; then
+    # Top level domain
     domain_full_name="$domain"
   else
     domain_full_name="$subdomain.$domain"
   fi
 
-  # Default ip_type to IPv6 if not specified
-  ip_type=${ip_type:-"IPv6"}
-  # Format ip_type
-  ip_type=$(echo "$ip_type" | sed 's/[iI][pP][vV]/IPv/')
-  if [ "$ip_type" = "IPv4" ]; then
+  # Default IPv6 if not specified
+  ip_ver="${ip_ver:-"IPv6"}"
+  # Convert to special format (IPv4/IPv6)
+  ip_ver="$(echo "$ip_ver" | sed 's/[iI][pP][vV]/IPv/')"
+  # Convert to record type (A/AAAA)
+  if [ "$ip_ver" = "IPv4" ]; then
     rec_type="A"
   else
     rec_type="AAAA"
@@ -148,47 +151,47 @@ dp_sync_ddns() {
   # Match local DNS cache
   if [ "$ns_ip_addr" = "$ip_addr" ]; then
     if [ "$LOG_LEVEL" -eq "$LOG_LEVEL_INFO" ]; then
-      logger -p info -s -t $LOG_TAG "$domain_full_name $ip_type address $ip_addr is up to date"
+      logger -p info -s -t $LOG_TAG "$domain_full_name $ip_ver address $ip_addr is up to date"
     else
-      echo "Info: $domain_full_name $ip_type address $ip_addr is up to date"
+      echo "Info: $domain_full_name $ip_ver address $ip_addr is up to date"
     fi
     # Return if force update is not required (IP address is up to date)
     [ "$FORCE_UPDATE" -eq 0 ] && return 0
   fi
 
-  # Retrieve the list of domain name resolution records (DNSPod API: DescribeRecordList)
+  # Get domain recordset (DNSPod API: DescribeRecordList)
   response="$(dp_rec_query "$domain" "$subdomain" "$rec_type")"
 
   # Validate response
   dp_api_err || return 1
 
-  # Extract the record ID and record IP from the DNSPOD API result
+  # Extract RecordId and IP address via DNSPod API
   record_id="$(echo "$response" | sed 's/.*"RecordId":\([0-9]*\).*/\1/')"
   record_ip="$(echo "$response" | sed -n 's/.*"Value":"\([0-9a-fA-F.:]*\)".*/\1/p')"
   if [ -z "$record_id" ] || [ -z "$record_ip" ]; then
-    echo "Error: The attempt to extract the record ID or record IP address for $domain_full_name from DNSPOD api response has failed."
+    echo "Error: Fail attempt to extract RecordId or IP address for $domain_full_name <$rec_type> from DNSPod API response"
     return 65
   fi
 
   # If the IP address is up to date here, it means the local DNS cache is out of date
   if [ "$ip_addr" = "$record_ip" ]; then
-    logger -p info -s -t $LOG_TAG "$domain_full_name [$interface] $ip_type address $ip_addr is up to date"
+    logger -p info -s -t $LOG_TAG "$domain_full_name [$interface] $ip_ver address $ip_addr is up to date"
     # Return if force update is not required (IP address is up to date)
     [ "$FORCE_UPDATE" -eq 0 ] && return 0
   fi
 
-  record_line="默认" # Line of default , unicode="\u9ed8\u8ba4"
+  record_line="默认" # Line of default, unicode is "\u9ed8\u8ba4"
 
-  # Update the dynamic DNS record (DNSPod API: ModifyDynamicDNS)
+  # Update DDNS (DNSPod API: ModifyDynamicDNS)
   response="$(dp_rec_update "$domain" "$record_id" "$record_line" "$ip_addr" "$subdomain")"
 
   # Validate response
   dp_api_err || return 1
 
-  logger -p notice -s -t $LOG_TAG "$domain_full_name $ip_type address has been updated to $ip_addr"
+  logger -p notice -s -t $LOG_TAG "$domain_full_name $ip_ver address has been updated to $ip_addr"
 }
 
-# Use DNSPod API to get the DNS records of a domain
+# Get DDNS recordset via DNSPod API
 dp_rec_query() {
   action="DescribeRecordList"
   payload="$(printf -- '{"Domain":"%s","Subdomain":"%s","RecordType":"%s"}' "$domain" "$subdomain" "$rec_type")"
@@ -198,7 +201,7 @@ dp_rec_query() {
   echo "$response"
 }
 
-# Use DNSPod API to Update dynamic DNS IP Address
+# Update DDNS via DNSPod API
 dp_rec_update() {
   action="ModifyDynamicDNS"
   payload="$(printf -- '{"Domain":"%s","RecordId":%d,"RecordLine":"%s","Value":"%s","SubDomain":"%s"}' "$domain" "$record_id" "$record_line" "$ip_addr" "$subdomain")"
@@ -208,9 +211,9 @@ dp_rec_update() {
   echo "$response"
 }
 
-# Use the 'ip' command to get IP address of the specified network interface
+# Get IP address of specified network interface
 ip_addr_show() {
-  if [ "$ip_type" = "IPv4" ]; then
+  if [ "$ip_ver" = "IPv4" ]; then
     ip_addr="$(ip -4 address show dev "$interface" | sed -n 's/.*inet \([0-9.]\+\).*/\1/p')"
   else
     # Please note the updates on https://www.iana.org/assignments/iana-ipv6-special-registry/iana-ipv6-special-registry.xhtml
@@ -237,30 +240,32 @@ ip_addr_show() {
 
   # Validate IP address
   if [ -z "$ip_addr" ]; then
-    logger -p error -s -t $LOG_TAG "The attempt to retrieve the $ip_type address for $domain_full_name by command 'ip' from $interface has failed."
+    logger -p error -s -t $LOG_TAG "Fail attempt to retrieve $ip_ver address for $domain_full_name from $interface"
     return 1
   fi
 
-  # Adds the specific custom suffix
+  # Adds specific custom suffix
   [ -z "$suffix" ] || ip_addr="${ip_addr%::*}:$suffix"
 }
 
-# Use 'nslookup' command to get the dynamic DNS IP address
+# Get the dynamic DNS IP address via nslookup
 ip_nslookup() {
+  # Get IP address
   response="$(nslookup -type="$rec_type" "$domain_full_name")"
+
+  # Validate response
   err_code="$(printf -- "%s" "$response" | grep -c "\*\*")"
-  # Check if an error occurred
   if [ "$err_code" -ne 0 ]; then
+    # Extract error message
     err_msg="$(printf -- "%s" "$response" | grep "\*")"
-    #err_msg=$(printf -- "%s" "$response" | sed -n 's/^\*\(.*\)/Error:*\1/p')
     logger -p error -s -t $LOG_TAG "$domain_full_name <$rec_type> [nslookup]: $err_msg"
     return 1
   fi
 
-  # Extract the IP address from the result
+  # Extract IP address from the result
   ns_ip_addr="$(echo "$response" | sed -n 's/.*Address: \([0-9a-fA-F.:]\+\).*/\1/p')"
 
-  # Validate the IP address
+  # Validate IP address
   if [ -z "$ns_ip_addr" ]; then
     logger -p error -s -t $LOG_TAG "$domain_full_name <$rec_type> [nslookup]: '$ns_ip_addr' IP address extraction failed"
     return 1
@@ -296,29 +301,34 @@ parse_command() {
   done
 }
 
-# Process synchronized dynamic DNS records from config file
+# Process synchronize dynamic DNS records from config file
 proc_ddns_records() {
-  # Read dynamic DNS records from config file
-  rec_cnt=$(grep -c "DDNS" "$CONF_FILE")
+  # No DDNS records found in config file
+  rec_cnt="$(grep -c "DDNS" "$CONF_FILE")"
   if [ "$rec_cnt" -eq 0 ]; then
-    echo "Info: No record of dynamic DNS found in '$CONF_FILE'."
+    echo "Info: Empty DDNS records in '$CONF_FILE'."
     return 1
   fi
 
   # Get DDNS record field
-  get_field() {
-    index="$1"
-    echo "$record" | cut -d ',' -f "$index"
+  get_ddns_field() {
+    echo "$record" | cut -d ',' -f "$1"
   }
-  # Process each dynamic DNS record
+
+  # Process DDNS records
   grep "DDNS" "$CONF_FILE" | while read -r "record"; do
-    # Remove 'DDNS=' prefix and extract Dynamic DNS fields
-    record=${record#DDNS=}
-    domain=$(get_field 1)
-    subdomain=$(get_field 2)
-    ip_type=$(get_field 3)
-    interface=$(get_field 4)
-    suffix=$(get_field 5)
+    # Remove all horizontal or vertical whitespace
+    record="$(printf -- %s "$record" | sed 's/\s//g')"
+
+    # Remove 'DDNS=' prefix and extract DDNS fields
+    record="${record#DDNS=}"
+    domain="$(get_ddns_field 1)"
+    subdomain="$(get_ddns_field 2)"
+    ip_ver="$(get_ddns_field 3)"
+    interface="$(get_ddns_field 4)"
+    suffix="$(get_ddns_field 5)"
+
+    # synchronize DDNS record
     dp_sync_ddns
   done
 }
@@ -338,42 +348,44 @@ Options:
 
 # Validate configration
 validate_config() {
-  # Check if the config file exists
+  # Validate config file
   [ -f "$CONF_FILE" ] || {
     echo "Error: Config file '$CONF_FILE' does not exist."
     return 1
   }
 
-  # Validate LOG_LEVEL
+  # Validate log level
   if ! echo "$LOG_LEVEL" | grep -q "^[01]$" ; then
     echo "Error: Invalid log level '$LOG_LEVEL', Use 0 (info) or 1 (notice)."
     return 1
   fi
 
-  # Read configration values
-  read_config_value() {
-    awk -F= -v key="$1" '$1 == key {gsub(/[ \t]+/, "", $2); print$2}' "$CONF_FILE"
+  # Extract value of key
+  extract_config() {
+	awk -F= -v "key=$1" '$1 == key { gsub(/\s/, ""); print $2 }' "$CONF_FILE"
   }
 
-  secret_id=$(read_config_value "SecretId")
-  secret_key=$(read_config_value "SecretKey")
-  # Validate secret_id and secret_key
+  # Get secret id and key
+  secret_id="$(extract_config "SecretId")"
+  secret_key="$(extract_config "SecretKey")"
+
+  # Validate API credentials
   if [ -z "$secret_id" ] || [ -z "$secret_key" ]; then
     echo "Error: SecretId or SecretKey is missing, please verify the configration in <$CONF_FILE>"
     return 1
   fi
 
-  # Validate log_file
-  log_file=$(read_config_value "LogFile")
+  # Validate log file
+  log_file="$(extract_config "LogFile")"
   [ -n "$log_file" ] || echo "Info: Missed 'LogFile=<file>' in <$CONF_FILE>"
-  # Set the LOG_FILE variable to the value from the config file or keep it as the default value
+  # Set LOG_FILE via config file
   [ -z "$log_file" ] || LOG_FILE="$log_file"
 }
 
 main() {
   parse_command "$@" || return 1
   validate_config    || return 1
-  proc_ddns_records
+  proc_ddns_records  || return 1
 }
 
 main "$@"

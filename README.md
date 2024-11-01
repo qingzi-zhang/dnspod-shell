@@ -8,9 +8,11 @@
   </a>
 </p>
 
-**[:~$] Synchronize DDNS via DNSPod API 3.0**
+🔁 **Synchronize DDNS via DNSPod API 3.0**
 
-## Install
+![diagram](ddnspod.svg)
+
+## Installation
 Clone & installation:
 ```
 git clone https://github.com/qingzi-zhang/dnspod-shell

@@ -12,6 +12,22 @@ LOG_LEVEL_INFO=0
 LOG_SIZE=1000000 # 1M Bytes
 LOG_TAG="ddnspod"
 
+# Parse error from API response
+dp_api_err() {
+  # Extract value of key
+  extract_api_err() {
+    echo "$response" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"
+  }
+
+  # Extract error code and message
+  err_code="$(extract_api_err Code)"
+  if [ -n "$err_code" ]; then
+    err_msg="$(extract_api_err Message)"
+    logger -p error -s -t $LOG_TAG "$domain_full_name <$rec_type> [$action]: $err_code, $err_msg"
+    return 1
+  fi
+}
+
 # Current version for the DNSPod API 3.0 DescribeRecordList and ModifyDynamicDNS: 2021-03-23
 # https://cloud.tencent.com/document/api/1427/56166, https://cloud.tencent.com/document/api/1427/56158
 algorithm="TC3-HMAC-SHA256"
@@ -62,36 +78,21 @@ dp_api_req() {
   return $?
 }
 
-# Parse error from API response
-dp_api_err() {
-  # Extract value of key
-  extract_api_err() {
-    echo "$response" | sed -n "s/.*\"$1\":\"\([^\"]*\)\".*/\1/p"
-  }
-
-  # Extract error code and message
-  err_code="$(extract_api_err Code)"
-  if [ -n "$err_code" ]; then
-    err_msg="$(extract_api_err Message)"
-    logger -p error -s -t $LOG_TAG "$domain_full_name <$rec_type> [$action]: $err_code, $err_msg"
-    return 1
-  fi
-}
-
 # Log to file
 dp_logger() {
   title="$1" body="$2"
   if [ -z "$title" ] || [ -z "$body" ]; then
     echo "Error: Missing required arguments <title> or <body>"
-    return 74
+    return 1
   fi
 
   # Create log file if missing
   if [ ! -f "$LOG_FILE" ]; then
     mkdir -p "$(dirname "$LOG_FILE")"
+
     if ! touch "$LOG_FILE" >/dev/null 2>&1 ; then
-      logger -p warning -s -t $LOG_TAG "Failed to create <$LOG_FILE>, please check it out"
-      return 73
+      logger -p warn -s -t $LOG_TAG "Failed to create <$LOG_FILE>, please check it out"
+      return 1
     fi
     chmod 600 "$LOG_FILE"
   fi
@@ -112,13 +113,13 @@ dp_logger() {
 dp_sync_ddns() {
   if [ -z "$domain" ]; then
     echo "Info: Domain name is missing, please check the config file <$CONF_FILE>"
-    return 78
+    return 1
   fi
 
-  # Validate network ineterface
+  # Validate network interface
   if ! ip link show dev "$interface" >/dev/null 2>&1 ; then
     echo "Error: Invalid interface '$interface' or unavailable"
-    return 78
+    return 1
   fi
 
   # Default subdomain to '@' if not specified
@@ -128,34 +129,35 @@ dp_sync_ddns() {
     # Top level domain
     domain_full_name="$domain"
   else
+    # Second level domain
     domain_full_name="$subdomain.$domain"
   fi
 
   # Default IPv6 if not specified
-  ip_ver="${ip_ver:-"IPv6"}"
+  ip_version="${ip_version:-"IPv6"}"
   # Convert to special format (IPv4/IPv6)
-  ip_ver="$(echo "$ip_ver" | sed 's/[iI][pP][vV]/IPv/')"
+  ip_version="$(echo "$ip_version" | sed 's/[iI][pP][vV]/IPv/')"
   # Convert to record type (A/AAAA)
-  if [ "$ip_ver" = "IPv4" ]; then
+  if [ "$ip_version" = "IPv4" ]; then
     rec_type="A"
   else
     rec_type="AAAA"
   fi
 
   # Get interface IP address
-  ip_addr_show || return 74
+  ip_addr_show || return 1
 
   # Get IP address via nslookup
-  ip_nslookup || return 74
+  ip_nslookup || return 1
 
   # Match local DNS cache
   if [ "$ns_ip_addr" = "$ip_addr" ]; then
     if [ "$LOG_LEVEL" -eq "$LOG_LEVEL_INFO" ]; then
-      logger -p info -s -t $LOG_TAG "$domain_full_name $ip_ver address $ip_addr is up to date"
+      logger -p info -s -t $LOG_TAG "$domain_full_name $ip_version address $ip_addr is up to date"
     else
-      echo "Info: $domain_full_name $ip_ver address $ip_addr is up to date"
+      echo "Info: $domain_full_name $ip_version address $ip_addr is up to date"
     fi
-    # Return if force update is not required (IP address is up to date)
+    # Skip when a force-update is not enabled (The IP address is already the latest)
     [ "$FORCE_UPDATE" -eq 0 ] && return 0
   fi
 
@@ -170,13 +172,13 @@ dp_sync_ddns() {
   record_ip="$(echo "$response" | sed -n 's/.*"Value":"\([0-9a-fA-F.:]*\)".*/\1/p')"
   if [ -z "$record_id" ] || [ -z "$record_ip" ]; then
     echo "Error: Fail attempt to extract RecordId or IP address for $domain_full_name <$rec_type> from DNSPod API response"
-    return 65
+    return 1
   fi
 
   # If the IP address is up to date here, it means the local DNS cache is out of date
   if [ "$ip_addr" = "$record_ip" ]; then
-    logger -p info -s -t $LOG_TAG "$domain_full_name [$interface] $ip_ver address $ip_addr is up to date"
-    # Return if force update is not required (IP address is up to date)
+    logger -p info -s -t $LOG_TAG "$domain_full_name [$interface] $ip_version address $ip_addr is up to date"
+    # Skip when a force-update is not enabled (The IP address is already the latest)
     [ "$FORCE_UPDATE" -eq 0 ] && return 0
   fi
 
@@ -188,7 +190,7 @@ dp_sync_ddns() {
   # Validate response
   dp_api_err || return 1
 
-  logger -p notice -s -t $LOG_TAG "$domain_full_name $ip_ver address has been updated to $ip_addr"
+  logger -p notice -s -t $LOG_TAG "$domain_full_name $ip_version address has been updated to $ip_addr"
 }
 
 # Get DDNS recordset via DNSPod API
@@ -213,7 +215,7 @@ dp_rec_update() {
 
 # Get IP address of specified network interface
 ip_addr_show() {
-  if [ "$ip_ver" = "IPv4" ]; then
+  if [ "$ip_version" = "IPv4" ]; then
     ip_addr="$(ip -4 address show dev "$interface" | sed -n 's/.*inet \([0-9.]\+\).*/\1/p')"
   else
     # Please note the updates on https://www.iana.org/assignments/iana-ipv6-special-registry/iana-ipv6-special-registry.xhtml
@@ -240,7 +242,7 @@ ip_addr_show() {
 
   # Validate IP address
   if [ -z "$ip_addr" ]; then
-    logger -p error -s -t $LOG_TAG "Fail attempt to retrieve $ip_ver address for $domain_full_name from $interface"
+    logger -p error -s -t $LOG_TAG "Failed attempt to retrieve $ip_version address for $domain_full_name from $interface"
     return 1
   fi
 
@@ -303,10 +305,10 @@ parse_command() {
 
 # Process synchronize dynamic DNS records from config file
 proc_ddns_records() {
-  # No DDNS records found in config file
+  # No DDNS records found in the config file
   rec_cnt="$(grep -c "DDNS" "$CONF_FILE")"
   if [ "$rec_cnt" -eq 0 ]; then
-    echo "Info: Empty DDNS records in '$CONF_FILE'."
+    echo "Info: No DDNS records in '$CONF_FILE'."
     return 1
   fi
 
@@ -319,12 +321,13 @@ proc_ddns_records() {
   grep "DDNS" "$CONF_FILE" | while read -r "record"; do
     # Remove all horizontal or vertical whitespace
     record="$(printf -- %s "$record" | sed 's/\s//g')"
-
-    # Remove 'DDNS=' prefix and extract DDNS fields
+    # Remove 'DDNS=' prefix
     record="${record#DDNS=}"
+
+    # Extract DDNS fields
     domain="$(get_ddns_field 1)"
     subdomain="$(get_ddns_field 2)"
-    ip_ver="$(get_ddns_field 3)"
+    ip_version="$(get_ddns_field 3)"
     interface="$(get_ddns_field 4)"
     suffix="$(get_ddns_field 5)"
 
@@ -346,7 +349,7 @@ Options:
   "
 }
 
-# Validate configration
+# Validate configuration
 validate_config() {
   # Validate config file
   [ -f "$CONF_FILE" ] || {
@@ -354,7 +357,7 @@ validate_config() {
     return 1
   }
 
-  # Validate log level
+  # Validate the log level
   if ! echo "$LOG_LEVEL" | grep -q "^[01]$" ; then
     echo "Error: Invalid log level '$LOG_LEVEL', Use 0 (info) or 1 (notice)."
     return 1
@@ -362,7 +365,7 @@ validate_config() {
 
   # Extract value of key
   extract_config() {
-	awk -F= -v "key=$1" '$1 == key { gsub(/\s/, ""); print $2 }' "$CONF_FILE"
+    awk -F= -v "key=$1" '$1 == key { gsub(/\s/, ""); print $2 }' "$CONF_FILE"
   }
 
   # Get secret id and key
@@ -371,15 +374,19 @@ validate_config() {
 
   # Validate API credentials
   if [ -z "$secret_id" ] || [ -z "$secret_key" ]; then
-    echo "Error: SecretId or SecretKey is missing, please verify the configration in <$CONF_FILE>"
+    echo "Error: SecretId or SecretKey is missing, please verify the configuration in <$CONF_FILE>"
     return 1
   fi
 
-  # Validate log file
+  # Check the log-file configuration
   log_file="$(extract_config "LogFile")"
-  [ -n "$log_file" ] || echo "Info: Missed 'LogFile=<file>' in <$CONF_FILE>"
-  # Set LOG_FILE via config file
-  [ -z "$log_file" ] || LOG_FILE="$log_file"
+  if [ -z "$log_file" ]; then
+    # Log a warning if no log-file is specified in the config file
+    logger -p warn -s -t $LOG_TAG "The 'LogFile' parameter is missing in the configuration file: $CONF_FILE"
+  else
+    # Set LOG_FILE via config file
+   LOG_FILE="$log_file"
+  fi
 }
 
 main() {

@@ -17,8 +17,8 @@ Clone & installation:
 ```
 git clone https://github.com/qingzi-zhang/dnspod-shell
 sudo cp dnspod-shell/ddnspod /etc/config/ddnspod
-sudo ln -s dnspod-shell/ddnspod.sh /usr/bin/ddnspod.sh
-sudo chmod 600 /usr/bin/ddnspod.sh
+sudo ln -s dnspod-shell/ddnspod.sh /usr/local/ddnspod.sh
+sudo chmod 600 /usr/local/ddnspod.sh
 ```
 
 ## Configuration

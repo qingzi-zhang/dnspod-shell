@@ -259,7 +259,7 @@ ip_nslookup() {
   err_code="$(printf -- "%s" "$response" | grep -c "\*\*")"
   if [ "$err_code" -ne 0 ]; then
     # Extract error message
-    err_msg="$(printf -- "%s" "$response" | grep "\*")"
+    err_msg="$(echo "${response}" | grep '\*')"
     logger -p error -s -t $LOG_TAG "$domain_full_name <$rec_type> [nslookup]: $err_msg"
     return 1
   fi
@@ -267,7 +267,7 @@ ip_nslookup() {
   # Extract IP address from the result
   ns_ip_addr="$(echo "$response" | sed -n 's/.*Address: \([0-9a-fA-F.:]\+\).*/\1/p')"
 
-  # Validate IP address
+  # Invalid IP address
   if [ -z "$ns_ip_addr" ]; then
     logger -p error -s -t $LOG_TAG "$domain_full_name <$rec_type> [nslookup]: '$ns_ip_addr' IP address extraction failed"
     return 1

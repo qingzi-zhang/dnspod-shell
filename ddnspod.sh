@@ -53,7 +53,7 @@ log_msg() {
 }
 
 # Function to get the dynamic DNS IP via nslookup
-query_internet_ip() {
+query_nslookup_ip() {
   # Perform nslookup for the specified domain and record type
   cmd_result="$(nslookup -type="${rec_type}" "${domain_full_name}")"
 
@@ -75,19 +75,24 @@ query_internet_ip() {
   fi
 }
 
-# Function to get the local IP address via ip command
-query_local_ip() {
+# Function to get the network interface IP address via ip command
+query_interface_ip() {
   if [ "$rec_type" = "A" ]; then
-    ip4_filter="^127.0.0.1$"
-    ip4_filter="$ip4_filter|^172"
-    ip4_filter="$ip4_filter|^192"
+    # https://www.iana.org/assignments/iana-ipv4-special-registry/iana-ipv4-special-registry.xhtml
+    # [RFC1122] Lookback Address 127.0.0.0/8
+    ip4_filter="^127$"
+    # [RFC3927] Link Local Address 169.254.0.0/16
+    # [RFC1918] Special-Use IPv4 Addresses 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16
     ip4_filter="$ip4_filter|^10"
+    ip4_filter="$ip4_filter|^172\.(1[6-9]|2[0-9]|3[01])"
+    ip4_filter="$ip4_filter|^192"
+    # [RFC1112] Reserved 240.0.0.0/4
+    ip4_filter="$ip4_filter|^240"
 
-    ip_addr="$(ip -4 address show dev "$interface" | sed -n 's/.*inet \([0-9.]\+\).*scope global.*/\1/p')"
-    ip_addr="$(echo "${ip_addr}" | grep -Ev "${ip4_filter}")"
+    # Fetches and filters IPv4 address from the specific interface
+    ip_addr="$(ip -4 address show dev "$interface" | sed -n 's/.*inet \([0-9.]\+\).*scope global.*/\1/p' | grep -Ev "${ip4_filter}")"
   else
-    # Please note the updates on https://www.iana.org/assignments/iana-ipv6-special-registry/iana-ipv6-special-registry.xhtml
-
+    # https://www.iana.org/assignments/iana-ipv6-special-registry/iana-ipv6-special-registry.xhtml
     # [RFC4291] Unspecified Address ::/128
     ip6_filter="^::$"
     # [RFC4291] Loopback Address ::1/128
@@ -104,7 +109,7 @@ query_local_ip() {
     # [RFC4291] Link-Local Unicast fe80::/10
     ip6_filter="$ip6_filter|^[fF][eE][89a-bA-B][0-9a-fA-F]:"
 
-   # Filter out specified IP addresses
+    # Fetches and filters IPv6 address from the specific interface
     ip_addr="$(ip -6 address show dev "$interface" | sed -n 's/.*inet6 \([0-9a-fA-F:]\+\)\/64.*scope global dynamic.*/\1/p' | grep -Ev "${ip6_filter}" | head -n 1)"
   fi
 
@@ -232,10 +237,10 @@ sync_ddns_rec() {
     rec_type="AAAA"
   fi
 
-  # Get internet IP address
-  query_internet_ip "${domain_full_name}" "${rec_type}" || return 1
-  # Get local IP address
-  query_local_ip "${rec_type}" "${interface}" "${suffix}" || return 1
+  # Get nslookup IP address
+  query_nslookup_ip "${domain_full_name}" "${rec_type}" || return 1
+  # Get network interface IP address
+  query_interface_ip "${rec_type}" "${interface}" "${suffix}" || return 1
 
   # Check if the local IP address is the same as the server IP address
   if [ "${ip_addr}" = "${ns_ip_addr}" ]; then
@@ -258,8 +263,8 @@ sync_ddns_rec() {
   fi
 
   # If the IP address is up to date here, it means the local DNS cache is out of date
-  if [ "${ns_ip_addr}" = "${record_ip}" ]; then
-    [ "${LOG_LEVEL}" -lt "${LOG_LEVEL_ERROR}" ] || logger -p info -s -t "${LOG_TAG}" "${domain_full_name} cache of ${ip_version} address ${ns_ip_addr} is up to date"
+  if [ "${ip_addr}" = "${record_ip}" ]; then
+    [ "${LOG_LEVEL}" -lt "${LOG_LEVEL_ERROR}" ] || logger -p info -s -t "${LOG_TAG}" "${domain_full_name} cache of ${ip_version} address ${ip_addr} is up to date"
     # Skip when a force-update is not enabled (The IP address cache is already up to date)
     [ "$FORCE_UPDATE" -eq 0 ] && return 0
   fi

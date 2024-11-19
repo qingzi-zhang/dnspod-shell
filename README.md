@@ -13,16 +13,17 @@
 ![diagram](ddnspod.svg)
 
 ## Installation
-Clone & installation:
+Clone & Setup:
 ```
 git clone https://github.com/qingzi-zhang/dnspod-shell
 sudo cp dnspod-shell/ddnspod /etc/config/ddnspod
-sudo ln -s dnspod-shell/ddnspod.sh /usr/local/ddnspod.sh
-sudo chmod 600 /usr/local/ddnspod.sh
+sudo chmod 0555 dnspod-shell/ddnspod.sh
+sudo ln -s dnspod-shell/ddnspod.sh /usr/bin/ddnspod.sh
 ```
 
 ## Configuration
 Replace the DDNS configuration in the file: `/etc/config/ddnspod`
+- LogFile=`/var/log/ddnspod.log`
 - SecretId=`AKIDz8krbsJ5yKBZQpn74WFkmLPx3*******`
 - SecretKey=`Gu5t9xGARNpq86cd98joQYCN3*******`
 - DDNS=`domain,subdomain,type,interface`
@@ -34,8 +35,8 @@ Usage:
   ddnspod.sh [options]
 
 Options:
-  -h, --help           Show help.
-  --config=<file>      Specify the config file
-  --force-update       Proceed update regardless of IP status
-  --log-level=<0|1>    Log level 0 (info), 1 (notice)
+  -h, --help           Print this help message
+  --config=<file>      Read config from a file
+  --force-update       Proceed with the update regardless of IP status
+  --log-level=<0|1>    Set the log level to 0 or 1 (0: Error, 1: Verbose)
 ```

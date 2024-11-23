@@ -4,15 +4,19 @@
 
 AGENT="https://github.com/qingzi-zhang/dnspod-shell"
 
-CONF_FILE="/etc/config/ddnspod"
-FORCE_UPDATE=0
-LOG_FILE="/var/log/ddnspod/ddnspod.log"
 LOG_LEVEL_ERROR=0
 LOG_LEVEL_VERBOSE=1
-LOG_LEVEL_DEFAULT="${LOG_LEVEL_ERROR}"
-LOG_LEVEL="${LOG_LEVEL:-${LOG_LEVEL_DEFAULT}}"
 LOG_SIZE=1000000 # Bytes
 TAG="ddnspod"
+
+DEFAULT_CFG_FILE="/etc/config/ddnspod"
+DEFAULT_LOG_FILE="/var/log/ddnspod/ddnspod.log"
+DEFAULT_LOG_LEVEL="${LOG_LEVEL_ERROR}"
+
+config_file="${DEFAULT_CFG_FILE}"
+force_update=0
+log_file="${DEFAULT_LOG_FILE}"
+log_level="${DEFAULT_LOG_LEVEL}"
 
 # Tencent API 3.0 DescribeRecordList and ModifyDynamicDNS current version: 2021-03-23
 # https://cloud.tencent.com/document/api/1427/56166, https://cloud.tencent.com/document/api/1427/56158
@@ -26,31 +30,31 @@ version="2021-03-23"
 log_msg() {
   # Check if arguments title ($1) and message ($2) are provided
   if [ -z "$1" ] || [ -z "$2" ]; then
-    [ "${LOG_LEVEL}" -eq "${LOG_LEVEL_VERBOSE}" ] && echo "Error: [log_msg] Missing one or more required arguments."
+    echo "Error: [log_msg] Missing one or more required arguments."
     # Return a non-zero exit status to indicate an error occurred
     return 1
   fi
 
   # Check if log file exists or create one
-  if [ ! -f "${LOG_FILE}" ]; then
+  if [ ! -f "${log_file}" ]; then
     umask 0077
-    mkdir -p "$(dirname "${LOG_FILE}")"
+    mkdir -p "$(dirname "${log_file}")"
     # Log a warning message if the log file creation fails
-    if ! touch "${LOG_FILE}" >/dev/null 2>&1 ; then
-      logger -p warn -s -t "${TAG}" "Failed to create '${LOG_FILE}', please check it out"
+    if ! touch "${log_file}" >/dev/null 2>&1 ; then
+      logger -p warn -s -t "${TAG}" "Failed to create '${log_file}', please check it out"
       return 1
     fi
   fi
 
   # Rotate log file if size exceeds limit
-  log_file_size="$(du -b "${LOG_FILE}" | cut -f1)"
+  log_file_size="$(du -b "${log_file}" | cut -f1)"
   if [ "${log_file_size}" -gt "${LOG_SIZE}" ]; then
-    mv -f "${LOG_FILE}" "${LOG_FILE}".bak
+    mv -f "${log_file}" "${log_file}".bak
   fi
 
   # Log the messages with timestamp
   log_time="$(date "+%Y-%m-%d %H:%M:%S")"
-  printf -- "----- %s [%s] -----\n%s\n" "${log_time}" "$1" "$2" >> "${LOG_FILE}"
+  printf -- "----- %s [%s] -----\n%s\n" "${log_time}" "$1" "$2" >> "${log_file}"
 }
 
 # Function to get the network interface IP address via ip command
@@ -214,7 +218,7 @@ rec_update() {
 sync_ddns_rec() {
   # Validate required fields
   if [ -z "${domain}" ]; then
-    logger -p error -s -t "${TAG}" "Missing required field 'domain' in the config file '${CONF_FILE}', check it out."
+    logger -p error -s -t "${TAG}" "Missing required field 'domain' in the config file '${config_file}', check it out."
     return 1
   fi
 
@@ -253,11 +257,12 @@ sync_ddns_rec() {
 
   # Check if the local IP address is the same as the server IP address
   if [ "${ip_addr}" = "${ns_ip_addr}" ]; then
-    [ "${LOG_LEVEL}" -ne "${LOG_LEVEL_VERBOSE}" ] || logger -p info -s -t "${TAG}" "${domain_full_name} ${ip_version} address ${ip_addr} is up to date"
-    [ "${LOG_LEVEL}" -eq "${LOG_LEVEL_VERBOSE}" ] || echo "${domain_full_name} ${ip_version} address ${ip_addr} is up to date"
+    [ "${log_level}" -eq "${LOG_LEVEL_VERBOSE}" ] \
+      && logger -p info -s -t "${TAG}" "${domain_full_name} ${ip_version} address ${ip_addr} is up to date" \
+      || echo "${domain_full_name} ${ip_version} address ${ip_addr} is up to date"
 
     # Skip when a force-update is not enabled (The IP address is already the latest)
-    [ "$FORCE_UPDATE" -eq 0 ] && return 0
+    [ "$force_update" -eq 0 ] && return 0
   fi
 
   # Get DDNS record information via DNSPod API
@@ -273,9 +278,9 @@ sync_ddns_rec() {
 
   # If the IP address is up to date here, it means the local DNS cache is out of date
   if [ "${ip_addr}" = "${record_ip}" ]; then
-    [ "${LOG_LEVEL}" -lt "${LOG_LEVEL_ERROR}" ] || logger -p info -s -t "${TAG}" "${domain_full_name} cache of ${ip_version} address ${ip_addr} is up to date"
+    [ "${log_level}" -lt "${LOG_LEVEL_ERROR}" ] || logger -p info -s -t "${TAG}" "${domain_full_name} cache of ${ip_version} address ${ip_addr} is up to date"
     # Skip when a force-update is not enabled (The IP address cache is already up to date)
-    [ "$FORCE_UPDATE" -eq 0 ] && return 0
+    [ "$force_update" -eq 0 ] && return 0
   fi
 
   # Set record line to default, unicode is "\u9ed8\u8ba4"
@@ -297,15 +302,15 @@ parse_command() {
         return 1
         ;;
       --config=*)
-        CONF_FILE="${1#*=}"
+        config_file="${1#*=}"
         shift
         ;;
       --force-update)
-        FORCE_UPDATE=1
+        force_update=1
         shift
         ;;
       --log-level=*)
-        LOG_LEVEL="${1#*=}"
+        log_level="${1#*=}"
         shift
         ;;
       *)
@@ -316,8 +321,8 @@ parse_command() {
     esac
   done
 
-  if [ "${FORCE_UPDATE}" -eq 1 ] && [ "${LOG_LEVEL}" -eq "${LOG_LEVEL_VERBOSE}" ]; then
-    printf -- "\n%s: Processing with force update is enabled\n\n" "${TAG}"
+  if [ "${force_update}" -eq 1 ] && [ "${log_level}" -eq "${LOG_LEVEL_VERBOSE}" ]; then
+    printf -- "%s: Processing with force update is enabled\n" "${TAG}"
   fi
 }
 
@@ -329,7 +334,7 @@ proc_ddns_records() {
   }
 
   # Process each DDNS record found in the config file
-  grep "DDNS" "${CONF_FILE}" | while read -r record ; do
+  grep "DDNS" "${config_file}" | while read -r record ; do
     # Remove all horizontal or vertical whitespace and 'DDNS=' prefix
     record="$(printf -- '%s' "${record}" | sed 's/\s//g' | sed 's/^DDNS=//')"
 
@@ -358,47 +363,48 @@ Options:
   --log-level=<0|1>    Set the log level to 0 or 1 (0: Error, 1: Verbose)"
 }
 
-# Function to validate the config file
+# Function to validate the configuration file
 validate_config() {
-  # Validate the config file
-  if [ ! -f "${CONF_FILE}" ]; then
-    logger -p error -s -t "${TAG}" "Config file '${CONF_FILE}' not found."
+  config_file="${config_file:=${DEFAULT_CFG_FILE}}"
+  # Validate the configuration file
+  if [ ! -f "${config_file}" ]; then
+    logger -p error -s -t "${TAG}" "Configuration file '${config_file}' not found."
     return 1
   fi
 
-  # Exit if no DDNS records are found in the config file.
-  if ! grep -q "DDNS" "${CONF_FILE}" ; then
-    logger -p warn -s -t "${TAG}" "No DDNS records in '${CONF_FILE}'."
+ # Validate the DDNS records
+  if ! grep -q "DDNS" "${config_file}" ; then
+    logger -p warn -s -t "${TAG}" "No DDNS records in '${config_file}'."
     return 1
   fi
 
+  log_level="${log_level:-${DEFAULT_LOG_LEVEL}}"
   # Validate the log level
-  if ! echo "${LOG_LEVEL}" | grep -q "^[01]$" ; then
-    logger -p error -s -t "${TAG}" "Error: Invalid log level '${LOG_LEVEL}', Use 0 (Error) or 1 (Verbose)"
+  if ! echo "${log_level}" | grep -q "^[01]$" ; then
+    logger -p error -s -t "${TAG}" "Invalid log level '${log_level}', Use 0 (Error) or 1 (Verbose)"
     return 1
   fi
 
   # Function to extract configuration fields
   extract_config() {
-    awk -F= -v "key=$1" '$1 == key { gsub(/\s/, ""); print $2 }' "$CONF_FILE"
+    awk -F= -v "key=$1" '$1 == key { gsub(/\s/, ""); print $2 }' "${config_file}"
   }
 
-  # Retieve the SecretId and SecretKey
+  # Extract the SecretId and SecretKey
   secret_id="$(extract_config SecretId)"
   secret_key="$(extract_config SecretKey)"
-
   # Validate the API credentials
   if [ -z "${secret_id}" ] || [ -z "${secret_key}" ]; then
-    logger -p error -s -t "${TAG}" "API credentials fields 'SecretId' or 'SecretKey' are missing in '${CONF_FILE}'."
+    logger -p error -s -t "${TAG}" "API credentials fields 'SecretId' or 'SecretKey' are missing in '${config_file}'."
     return 1
   fi
 
-  # Retieve the log file setting
+  # Extract the log file
   log_file="$(extract_config LogFile)"
+  # Validate the log file
   if [ -z "${log_file}" ]; then
-    logger -p warn -s -t "${TAG}" "Log file field 'LogFile' missed in in '${CONF_FILE}'."
-  else
-    LOG_FILE="${log_file}"
+    log_file="${DEFAULT_LOG_FILE}"
+    logger -p warn -s -t "${TAG}" "Log file field 'LogFile' not found in '${config_file}'"
   fi
 }
 

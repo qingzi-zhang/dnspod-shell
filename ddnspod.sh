@@ -140,11 +140,11 @@ query_nslookup_ip() {
 # Function to handle Tencent API errors
 tencent_api_err() {
   # Extract error code from the API response
-  err_code="$(echo "${api_response}" | sed -n 's/.*"Code":"\([^"]*\)".*/\1/p')"
+  err_code="$(echo "${api_response}" | sed 's/.*"Code":"\([^"]\+\)".*/\1/p')"
 
   if [ -n "${err_code}" ]; then
     # Extract the error message
-    err_msg="$(echo "${api_response}" | sed -n 's/.*"Message":"\([^"]*\)".*/\1/p')"
+    err_msg="$(echo "${api_response}" | sed 's/.*"Message":"\([^"]*\)".*/\1/')"
     logger -p error -s -t "${TAG}" "${domain_full_name} ${rec_type} [${action}]: ${err_code}, ${err_msg}"
     return 1
   fi
@@ -269,8 +269,9 @@ sync_ddns_rec() {
   rec_query "${domain}" "${subdomain}" "${rec_type}" || return 1
 
   # Extract RecordId and IP address via DNSPod API
-  record_id="$(echo "${api_response}" | sed 's/.*"RecordId":\([0-9]*\).*/\1/')"
-  record_ip="$(echo "${api_response}" | sed -n 's/.*"Value":"\([0-9a-fA-F.:]*\)".*/\1/p')"
+  record_id="$(echo "${api_response}" | sed 's/.*"RecordId":\([0-9]\+\).*/\1/')"
+  record_ip="$(echo "${api_response}" | sed 's/.*"Value":"\([0-9a-fA-F.:]\+\)".*/\1/')"
+
   if [ -z "${record_id}" ] || [ -z "${record_ip}" ]; then
     logger -p error -s -t "${TAG}" "Fail attempt to extract RecordId or IP address for ${domain_full_name} ${rec_type} from DNSPod API response"
     return 1
@@ -322,7 +323,7 @@ parse_command() {
   done
 
   if [ "${force_update}" -eq 1 ] && [ "${log_level}" -eq "${LOG_LEVEL_VERBOSE}" ]; then
-    printf -- "%s: Processing with force update is enabled\n" "${TAG}"
+    logger -p info -s -t "${TAG}" "Processing with force update is enabled"
   fi
 }
 
@@ -336,7 +337,7 @@ proc_ddns_records() {
   # Process each DDNS record found in the config file
   grep "DDNS" "${config_file}" | while read -r record ; do
     # Remove all horizontal or vertical whitespace and 'DDNS=' prefix
-    record="$(printf -- '%s' "${record}" | sed 's/\s//g' | sed 's/^DDNS=//')"
+    record="$(printf -- '%s' "${record}" | sed -E 's/\s+//g; s/^DDNS=//')"
 
     # Extract DDNS fields
     domain="$(get_ddns_field 1)"

@@ -61,7 +61,7 @@ log_msg() {
 query_interface_ip() {
   if [ "${rec_type}" = "A" ]; then
     # https://www.iana.org/assignments/iana-ipv4-special-registry/iana-ipv4-special-registry.xhtml
-    #	[RFC791] "This network" 0.0.0.0/8
+    # [RFC791] "This network" 0.0.0.0/8
     ip4_filter="^0\.(25[0-5]|2[0-4][0-9]|[01]?[0-9]{1,2}\.)"
     # [RFC1122] "This host on this network" 127.0.0.0/8
     ip4_filter="${ip4_filter}|^127\."
@@ -144,7 +144,7 @@ tencent_api_err() {
 
   if [ -n "${err_code}" ]; then
     # Extract the error message
-    err_msg="$(echo "${api_response}" | sed 's/.*"Message":"\([^"]*\)".*/\1/')"
+    err_msg="$(echo "${api_response}" | sed 's/.*"Message":"\([^"]\+\)".*/\1/')"
     logger -p error -s -t "${TAG}" "${domain_full_name} ${rec_type} [${action}]: ${err_code}, ${err_msg}"
     return 1
   fi

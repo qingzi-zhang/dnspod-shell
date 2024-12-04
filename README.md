@@ -13,7 +13,19 @@
 ![diagram](ddnspod.svg)
 
 ## Installation
-Clone & Setup:
+### Required to install OpenSSL
+- ***Debian***
+```
+sudo apt update
+sudo apt install openssl
+```
+- ***OpenWrt***
+```
+opkg update
+opkg install openssl-util
+```
+
+### Clone & Setup
 ```
 git clone https://github.com/qingzi-zhang/dnspod-shell
 sudo cp dnspod-shell/ddnspod /etc/config/ddnspod

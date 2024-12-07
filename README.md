@@ -38,7 +38,7 @@ Replace the DDNS configuration in the file: `/etc/config/ddnspod`
 - LogFile=`/var/log/ddnspod.log`
 - SecretId=`AKIDz8krbsJ5yKBZQpn74WFkmLPx3*******`
 - SecretKey=`Gu5t9xGARNpq86cd98joQYCN3*******`
-- DDNS=`domain,subdomain,type,interface`
+- DDNS=`domain,subdomain,ip_version,interface`
 - DDNS=`domain.ai,www,IPv6,pppoe-wan`
 
 ## Usage

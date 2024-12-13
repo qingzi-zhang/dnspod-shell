@@ -1,8 +1,19 @@
 #!/usr/bin/env sh
 #
 # dnspod-shell: A DDNS Shell Script: ddnspod.sh
+# https://github.com/qingzi-zhang/dnspod-shell
+#
+#  Copyright [2024] [Ken <qingzi dot zhang at outlook dot com>]
+#
+#  Licensed under the Apache License, Version 2.0 (the "License");
+#  you may not use this file except in compliance with the License.
+#  You may obtain a copy of the License at
+#
+#      http://www.apache.org/licenses/LICENSE-2.0
+#
+# DNSPod API v3 documentation at https://cloud.tencent.com/document/api/1427
 
-AGENT="https://github.com/qingzi-zhang/dnspod-shell"
+AGENT="ddns-dnspod/v24.11.2-rc1 (404919@qq.com)"
 
 LOG_LEVEL_ERROR=0
 LOG_LEVEL_VERBOSE=1
@@ -110,8 +121,10 @@ query_interface_ip() {
     return 1
   fi
 
-  # Adds specific custom suffix
-  [ -z "${suffix}" ] || ip_addr="${ip_addr%::*}:${suffix}"
+  # Adds specific IPv6 EUI-64 (Extended Unique Identifier) suffix
+  if [ -n "${suffix}" ]; then
+    [ -z "$(echo ${ip_addr} | grep "::")" ] || ip_addr="${ip_addr%::*}:${suffix}"
+  fi
 }
 
 # Function to get the dynamic DNS IP via nslookup
@@ -335,9 +348,9 @@ proc_ddns_records() {
   }
 
   # Process each DDNS record found in the config file
-  grep "DDNS" "${config_file}" | while read -r record ; do
+  grep "^DDNS" "${config_file}" | while IFS= read -r record ; do
     # Remove all horizontal or vertical whitespace and 'DDNS=' prefix
-    record="$(printf -- '%s' "${record}" | sed -E 's/\s+//g; s/^DDNS=//')"
+    record="$(printf -- '%s' "${record}" | sed 's/\s+//g; s/^DDNS=//')"
 
     # Extract DDNS fields
     domain="$(get_ddns_field 1)"
@@ -388,7 +401,7 @@ validate_config() {
 
   # Function to extract configuration fields
   extract_config() {
-    awk -F= -v "key=$1" '$1 == key { gsub(/\s/, ""); print $2 }' "${config_file}"
+    grep "$1" "${config_file}" | cut -d '=' -f 2 | sed 's/\"//g; s/\s//g'
   }
 
   # Extract the SecretId and SecretKey
